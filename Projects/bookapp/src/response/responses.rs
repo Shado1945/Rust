@@ -8,7 +8,7 @@ pub enum Response {
     NoUserFound,
     InternalError,
     BadRequest,
-    // Unauthorized,
+    Unauthorized,
     // Forbidden,
 }
 
@@ -20,7 +20,7 @@ impl Response {
             Response::NoUserFound => StatusCode::NOT_FOUND,
             Response::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
             Response::BadRequest => StatusCode::BAD_REQUEST,
-            // Response::Unauthorized => StatusCode::UNAUTHORIZED,
+            Response::Unauthorized => StatusCode::UNAUTHORIZED,
             // Response::Forbidden => StatusCode::FORBIDDEN,
         }
     }
@@ -32,7 +32,7 @@ impl Response {
             Response::NoUserFound => "No User data Found",
             Response::InternalError => "Internal Server Error",
             Response::BadRequest => "Bad Request",
-            // Response::Unauthorized => "Unauthorized",
+            Response::Unauthorized => "Unauthorized",
             // Response::Forbidden => "Forbidden",
         }
     }

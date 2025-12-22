@@ -1,3 +1,5 @@
+mod auth;
+mod config;
 mod database;
 mod response;
 mod routes;
@@ -35,6 +37,7 @@ async fn main() {
     //Routes
     let app = routes::home::home_route()
         .merge(routes::users::users_route(pool.clone()))
+        .merge(routes::login::login_route(pool.clone()))
         .fallback(routes::error::error_route);
     info!("Routes initialized successfully");
 

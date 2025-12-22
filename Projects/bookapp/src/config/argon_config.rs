@@ -27,22 +27,22 @@ impl Default for ArgonConfig {
 impl ArgonConfig {
     pub fn from_env() -> Self {
         let mut config = Self::default();
-        if let Ok(memory) = env::var("ARGON_MEMORY_COST_KB") {
-            if let Ok(parsed) = memory.parse::<u32>() {
-                config.memory_cost_kb = parsed;
-            }
+        if let Ok(memory) = env::var("ARGON_MEMORY_COST_KB")
+            && let Ok(parsed) = memory.parse::<u32>()
+        {
+            config.memory_cost_kb = parsed;
         }
 
-        if let Ok(iterations) = env::var("ARGON_ITERATIONS") {
-            if let Ok(parsed) = iterations.parse::<u32>() {
-                config.iterations = parsed;
-            }
+        if let Ok(iterations) = env::var("ARGON_ITERATIONS")
+            && let Ok(parsed) = iterations.parse::<u32>()
+        {
+            config.iterations = parsed;
         }
 
-        if let Ok(parallelism) = env::var("ARGON_PARALLELISM") {
-            if let Ok(parsed) = parallelism.parse::<u32>() {
-                config.parallelism = parsed;
-            }
+        if let Ok(parallelism) = env::var("ARGON_PARALLELISM")
+            && let Ok(parsed) = parallelism.parse::<u32>()
+        {
+            config.parallelism = parsed;
         }
 
         if let Ok(variant) = env::var("ARGON_VARIANT") {
@@ -52,6 +52,8 @@ impl ArgonConfig {
         if let Ok(secret) = env::var("ARGON_SECRET_KEY") {
             config.secret_key = Some(secret);
         }
+
+        config
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -96,6 +98,7 @@ impl ArgonConfig {
     }
 
     #[cfg(feature = "dev")]
+    #[allow(dead_code)]
     pub fn development() -> Self {
         Self {
             memory_cost_kb: 4096,
@@ -108,6 +111,7 @@ impl ArgonConfig {
     }
 
     #[cfg(feature = "prod")]
+    #[allow(dead_code)]
     pub fn production() -> Self {
         Self {
             memory_cost_kb: 65536,
