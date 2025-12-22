@@ -99,12 +99,12 @@ async fn login(
                     phone: None,
                 }))
             }
-            Err(e) => {
+            Err(_) => {
                 error!(
                     "LOGIN: Password verification error with error {:?}",
                     Response::InternalError
                 );
-                return Err(Response::InternalError);
+                Err(Response::InternalError)
             }
         },
         None => {

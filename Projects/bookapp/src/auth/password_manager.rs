@@ -42,8 +42,6 @@ impl PasswordManager {
             )
             .map_err(|e| anyhow!("Failed to create params: {}", e))?;
 
-            // FIX: Create Argon2 WITHOUT secret for now
-            // Remove secret support since it's causing lifetime issues
             let argon2 = Argon2::new(algorithm, Version::V0x13, params);
 
             let hash = argon2
@@ -79,7 +77,6 @@ impl PasswordManager {
             )
             .map_err(|e| anyhow!("Failed to create params: {}", e))?;
 
-            // FIX: Create Argon2 WITHOUT secret for now
             let argon2 = Argon2::new(algorithm, Version::V0x13, params);
 
             match argon2.verify_password(password.as_bytes(), &parsed_hash) {
@@ -96,20 +93,17 @@ impl PasswordManager {
         let parsed_hash =
             PasswordHash::new(hash).map_err(|e| anyhow!("Failed to parse hash: {}", e))?;
 
-        match parsed_hash.params {
-            params => {
-                let hash_memory = params.get_decimal("m").unwrap_or(0);
-                let hash_iterations = params.get_decimal("t").unwrap_or(0);
-                let hash_parallelism = params.get_decimal("p").unwrap_or(0);
+        if let params = parsed_hash.params {
+            let hash_memory = params.get_decimal("m").unwrap_or(0);
+            let hash_iterations = params.get_decimal("t").unwrap_or(0);
+            let hash_parallelism = params.get_decimal("p").unwrap_or(0);
 
-                if hash_memory < self.config.memory_cost_kb
-                    || hash_iterations < self.config.iterations
-                    || hash_parallelism < self.config.parallelism
-                {
-                    return Ok(true);
-                }
+            if hash_memory < self.config.memory_cost_kb
+                || hash_iterations < self.config.iterations
+                || hash_parallelism < self.config.parallelism
+            {
+                return Ok(true);
             }
-            _ => (),
         }
 
         Ok(false)
