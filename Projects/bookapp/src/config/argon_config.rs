@@ -1,3 +1,6 @@
+use serde::{Deserialize, Serialize};
+use std::env;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArgonConfig {
     pub memory_cost_kb: u32,
@@ -92,7 +95,7 @@ impl ArgonConfig {
         }
     }
 
-    //dev
+    #[cfg(feature = "dev")]
     pub fn development() -> Self {
         Self {
             memory_cost_kb: 4096,
@@ -104,7 +107,7 @@ impl ArgonConfig {
         }
     }
 
-    //prod
+    #[cfg(feature = "prod")]
     pub fn production() -> Self {
         Self {
             memory_cost_kb: 65536,

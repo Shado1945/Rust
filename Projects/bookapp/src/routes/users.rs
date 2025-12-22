@@ -1,8 +1,12 @@
 use crate::response::responses::Response;
+use argon2::{
+    Argon2,
+    password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
+};
 use axum::{
     Json, Router,
     extract::{Path, State},
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -35,6 +39,11 @@ pub struct UserCrudResponse {
 pub struct MultipleUsersRequest {
     pub ids: Vec<i32>,
 }
+#[derive(Deserialize)]
+pub struct UserPasswordChange {
+    pub password: String,
+    pub update_by: String,
+}
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
 pub struct UserData {
@@ -59,8 +68,23 @@ pub fn users_route(pool: PgPool) -> Router {
         .route("/users/:id", put(update_user))
         .route("/users/:id", get(get_user))
         .route("/users/:id", delete(remove_user))
+        .route("/users/update_pwd/:id", patch(update_password))
         .route("/users/delete_multiple", delete(remove_multiple_users))
         .with_state(pool)
+}
+
+async fn hash_password(password: &str) -> Result<String, String> {
+    let password = password.to_string();
+    tokio::task::spawn_blocking(move || {
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::default();
+        let hash = argon2
+            .hash_password(password.as_bytes(), &salt)
+            .map_err(|e| format!("Hashing failed: {}", e))?;
+        Ok(hash.to_string())
+    })
+    .await
+    .map_err(|e| format!("Password hashing task failed: {}", e))?
 }
 
 async fn get_all_users(State(pool): State<PgPool>) -> Result<Json<AllUserFetchResponse>, Response> {
@@ -214,7 +238,14 @@ async fn create_user(
         ..
     } = payload;
 
-    let pwd: String = format!("{}#01!", &username);
+    let plain_pwd: String = format!("{}#01!", &username);
+    let hashed_pwd = match hash_password(&plain_pwd).await {
+        Ok(hash) => hash,
+        Err(e) => {
+            error!("CREATE_USER: Password hashing failed {}.", e);
+            return Err(Response::InternalError);
+        }
+    };
 
     let result = match sqlx::query(CREATE_USER)
         .bind(&username)
@@ -222,7 +253,7 @@ async fn create_user(
         .bind(surname)
         .bind(phone)
         .bind(email)
-        .bind(pwd)
+        .bind(hashed_pwd)
         .bind(created_by)
         .execute(&pool)
         .await
@@ -299,6 +330,55 @@ async fn update_user(
     }))
 }
 
+async fn update_password(
+    Path(id): Path<i32>,
+    State(pool): State<PgPool>,
+    Json(payload): Json<UserPasswordChange>,
+) -> Result<Json<UserCrudResponse>, Response> {
+    let UserPasswordChange {
+        password,
+        update_by,
+    } = payload;
+
+    if password.trim().is_empty() {
+        return Err(Response::BadRequest);
+    }
+
+    let write_date = Utc::now().naive_utc();
+    let hashed_pwd = match hash_password(password.as_str()).await {
+        Ok(hash) => hash,
+        Err(e) => {
+            error!("UPDATE_PASSWORD: Password hashing failed {}.", e);
+            return Err(Response::InternalError);
+        }
+    };
+
+    let result = match sqlx::query(UPDATE_USER_PWD)
+        .bind(hashed_pwd)
+        .bind(update_by)
+        .bind(write_date)
+        .bind(id)
+        .execute(&pool)
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => {
+            error!(
+                "UPDATE_PASSWOR: Record id {id} failed with error {:?}",
+                Response::InternalError
+            );
+            return Err(Response::InternalError);
+        }
+    };
+
+    info!("User password for record: {id} updated successfully");
+    Ok(Json(UserCrudResponse {
+        code: Response::Success.status_code().as_u16(),
+        message: "Password updated successfully".to_string(),
+        rows_affected: result.rows_affected(),
+    }))
+}
+
 const GET_ALL_USERS: &str = "
 SELECT id
     ,username
@@ -354,4 +434,12 @@ SET username = $1
     ,update_by = $6
     ,write_date = $7
 WHERE id = $8
+";
+
+const UPDATE_USER_PWD: &str = "
+UPDATE users
+SET pwd = $1
+    ,update_by = $2
+    ,write_date = $3
+WHERE id = $4
 ";
