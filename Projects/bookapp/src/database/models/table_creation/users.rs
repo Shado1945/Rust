@@ -10,7 +10,7 @@ pub async fn user_table(pool: &PgPool) -> Result<(), sqlx::Error> {
     let phone = "+27824505996".to_string();
     let email = "admin@gmail.com".to_string();
     let created_by = "admin".to_string();
-    let plain_pwd: String = format!("{}#01", &username);
+    let plain_pwd: String = format!("{}#01!", &username);
     let hash_pwd = match hash(plain_pwd, DEFAULT_COST) {
         Ok(p) => p,
         Err(e) => {

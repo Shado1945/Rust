@@ -1,7 +1,9 @@
+use crate::middleware::auth::auth_middleware;
 use crate::response::responses::Response;
 use axum::{
     Json, Router,
     extract::{Path, State},
+    middleware,
     routing::{delete, get, patch, post, put},
 };
 use bcrypt::{DEFAULT_COST, hash};
@@ -13,7 +15,7 @@ use tracing::{error, info};
 #[derive(Serialize)]
 pub struct AllUserFetchResponse {
     pub code: u16,
-    pub message: &'static str,
+    pub message: String,
     pub data: Vec<UserData>,
     pub total: u64,
 }
@@ -21,7 +23,7 @@ pub struct AllUserFetchResponse {
 #[derive(Serialize)]
 pub struct SingleUserGetResponse {
     pub code: u16,
-    pub message: &'static str,
+    pub message: String,
     pub data: Option<UserData>,
 }
 
@@ -67,7 +69,8 @@ pub fn users_route(pool: PgPool) -> Router {
         .route("/users/:id", delete(remove_user))
         .route("/users/update_pwd/:id", patch(update_password))
         .route("/users/delete_multiple", delete(remove_multiple_users))
-        .with_state(pool)
+        .with_state(pool.clone())
+        .route_layer(middleware::from_fn_with_state(pool, auth_middleware))
 }
 
 async fn get_all_users(State(pool): State<PgPool>) -> Result<Json<AllUserFetchResponse>, Response> {

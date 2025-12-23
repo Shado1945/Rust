@@ -1,4 +1,6 @@
+mod auth;
 mod database;
+mod middleware;
 mod response;
 mod routes;
 

@@ -1,6 +1,8 @@
+use crate::auth::token::create_jwt;
 use crate::response::responses::Response;
 use axum::{Json, Router, extract::State, routing::post};
 use bcrypt::verify;
+use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use tracing::{error, info};
@@ -15,12 +17,12 @@ pub struct LoginRequest {
 pub struct LoginResponse {
     pub code: u16,
     pub message: String,
+    pub token: Option<String>,
     pub data: Option<UserData>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct UserData {
-    pub id: i32,
     pub username: String,
     pub name: String,
     pub surname: String,
@@ -64,6 +66,7 @@ pub async fn login(
         return Ok(Json(LoginResponse {
             code: Response::Unauthorized.status_code().as_u16(),
             message: "The username provided is incorrect".to_string(),
+            token: None,
             data: None,
         }));
     };
@@ -79,29 +82,55 @@ pub async fn login(
         }
     };
 
-    if pwd_valid {
-        info!("LOGIN: User {username} successfully logged in");
-        Ok(Json(LoginResponse {
-            code: Response::Success.status_code().as_u16(),
-            message: "User logged in successfuly".to_string(),
-            data: Some(user_data),
-        }))
-    } else {
+    if !pwd_valid {
         error!(
             "LOGIN: Password provided was incorrect with this error {:?}",
             Response::Unauthorized
         );
-        Ok(Json(LoginResponse {
+        return Ok(Json(LoginResponse {
             code: Response::Unauthorized.status_code().as_u16(),
             message: "The password provided is incorrect".to_string(),
+            token: None,
             data: None,
-        }))
+        }));
     }
+    let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "STAR_WARS_ROCKS".to_string());
+    let token = match create_jwt(&username, &secret).await {
+        Ok(t) => t,
+        Err(e) => {
+            error!("LOGIN: Failed to create JWT token: {:?}", e);
+            return Err(Response::InternalError);
+        }
+    };
+    let now = Utc::now();
+    let expires_at = now + Duration::hours(8);
+
+    match sqlx::query(UPSERT_USER_LOGIN)
+        .bind(&username)
+        .bind(&token)
+        .bind(now)
+        .bind(expires_at)
+        .execute(&pool)
+        .await
+    {
+        Ok(_) => {
+            info!("LOGIN: Token saved for user '{}'", username);
+        }
+        Err(e) => {
+            error!("LOGIN: Failed to save token to database: {:?}", e);
+        }
+    }
+
+    Ok(Json(LoginResponse {
+        code: Response::Success.status_code().as_u16(),
+        message: "User logged in successfully".to_string(),
+        token: Some(token),
+        data: Some(user_data),
+    }))
 }
 
 const FETCH_USER_DATA: &str = "
-SELECT id
-    ,username
+SELECT username
     ,name
     ,surname
     ,phone
@@ -109,4 +138,14 @@ SELECT id
     ,pwd
 FROM users
 WHERE username = $1
+";
+
+const UPSERT_USER_LOGIN: &str = "
+INSERT INTO user_login (username, token, created_datetime, expire_datetime)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (username)
+DO UPDATE SET
+    token = EXCLUDED.token,
+    created_datetime = EXCLUDED.created_datetime,
+    expire_datetime = EXCLUDED.expire_datetime
 ";

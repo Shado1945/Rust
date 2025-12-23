@@ -1,7 +1,8 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response as AxumResponse};
+use jsonwebtoken::errors::Error as JwtError;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Response {
     Success,
     NotFound,
@@ -10,6 +11,7 @@ pub enum Response {
     BadRequest,
     Unauthorized,
     // Forbidden,
+    InvalidToken(String),
 }
 
 impl Response {
@@ -22,18 +24,20 @@ impl Response {
             Response::BadRequest => StatusCode::BAD_REQUEST,
             Response::Unauthorized => StatusCode::UNAUTHORIZED,
             // Response::Forbidden => StatusCode::FORBIDDEN,
+            Response::InvalidToken(_) => StatusCode::UNAUTHORIZED,
         }
     }
 
-    pub const fn message(&self) -> &'static str {
+    pub fn message(&self) -> String {
         match self {
-            Response::Success => "Success",
-            Response::NotFound => "Not Found",
-            Response::NoUserFound => "No User data Found",
-            Response::InternalError => "Internal Server Error",
-            Response::BadRequest => "Bad Request",
-            Response::Unauthorized => "Unauthorized",
+            Response::Success => "Success".to_string(),
+            Response::NotFound => "Not Found".to_string(),
+            Response::NoUserFound => "No User data Found".to_string(),
+            Response::InternalError => "Internal Server Error".to_string(),
+            Response::BadRequest => "Bad Request".to_string(),
+            Response::Unauthorized => "Unauthorized".to_string(),
             // Response::Forbidden => "Forbidden",
+            Response::InvalidToken(msg) => format!("Token Invalid: {}", msg),
         }
     }
 }
@@ -46,5 +50,11 @@ impl IntoResponse for Response {
         });
 
         (self.status_code(), axum::Json(body)).into_response()
+    }
+}
+
+impl From<JwtError> for Response {
+    fn from(err: JwtError) -> Self {
+        Response::InvalidToken(err.to_string())
     }
 }
