@@ -1,13 +1,10 @@
 use crate::response::responses::Response;
-use argon2::{
-    Argon2,
-    password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
-};
 use axum::{
     Json, Router,
     extract::{Path, State},
     routing::{delete, get, patch, post, put},
 };
+use bcrypt::{DEFAULT_COST, hash};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
@@ -71,20 +68,6 @@ pub fn users_route(pool: PgPool) -> Router {
         .route("/users/update_pwd/:id", patch(update_password))
         .route("/users/delete_multiple", delete(remove_multiple_users))
         .with_state(pool)
-}
-
-async fn hash_password(password: &str) -> Result<String, String> {
-    let password = password.to_string();
-    tokio::task::spawn_blocking(move || {
-        let salt = SaltString::generate(&mut OsRng);
-        let argon2 = Argon2::default();
-        let hash = argon2
-            .hash_password(password.as_bytes(), &salt)
-            .map_err(|e| format!("Hashing failed: {}", e))?;
-        Ok(hash.to_string())
-    })
-    .await
-    .map_err(|e| format!("Password hashing task failed: {}", e))?
 }
 
 async fn get_all_users(State(pool): State<PgPool>) -> Result<Json<AllUserFetchResponse>, Response> {
@@ -239,10 +222,14 @@ async fn create_user(
     } = payload;
 
     let plain_pwd: String = format!("{}#01!", &username);
-    let hashed_pwd = match hash_password(&plain_pwd).await {
-        Ok(hash) => hash,
-        Err(e) => {
-            error!("CREATE_USER: Password hashing failed {}.", e);
+
+    let hashed_pwd = match hash(plain_pwd, DEFAULT_COST) {
+        Ok(r) => r,
+        Err(_) => {
+            error!(
+                "CREATE_USER: Password Hashing failed with error {:?}",
+                Response::InternalError
+            );
             return Err(Response::InternalError);
         }
     };
@@ -345,10 +332,13 @@ async fn update_password(
     }
 
     let write_date = Utc::now().naive_utc();
-    let hashed_pwd = match hash_password(password.as_str()).await {
-        Ok(hash) => hash,
-        Err(e) => {
-            error!("UPDATE_PASSWORD: Password hashing failed {}.", e);
+    let hashed_pwd = match hash(password, DEFAULT_COST) {
+        Ok(r) => r,
+        Err(_) => {
+            error!(
+                "UPDATE_PASSWORD: Password Hashing failed with error {:?}",
+                Response::InternalError
+            );
             return Err(Response::InternalError);
         }
     };

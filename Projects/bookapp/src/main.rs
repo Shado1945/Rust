@@ -1,5 +1,3 @@
-mod auth;
-mod config;
 mod database;
 mod response;
 mod routes;

@@ -1,135 +1,111 @@
+use crate::response::responses::Response;
 use axum::{Json, Router, extract::State, routing::post};
+use bcrypt::verify;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use tracing::{error, info};
 
-use crate::auth::PasswordManager;
-use crate::config::ArgonConfig;
-use crate::response::responses::Response;
-
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct LoginRequest {
-    pub username: String,
-    pub password: String,
+    username: String,
+    password: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct LoginResponse {
     pub code: u16,
     pub message: String,
-    pub id: Option<i32>,
-    pub username: Option<String>,
-    pub name: Option<String>,
-    pub surname: Option<String>,
-    pub email: Option<String>,
-    pub phone: Option<String>,
+    pub data: Option<UserData>,
 }
 
-#[derive(Debug, FromRow)]
-struct UserRecord {
-    id: i32,
-    username: String,
-    name: String,
-    surname: String,
-    email: String,
-    phone: String,
-    pwd: String,
+#[derive(Debug, Serialize, FromRow)]
+pub struct UserData {
+    pub id: i32,
+    pub username: String,
+    pub name: String,
+    pub surname: String,
+    pub phone: String,
+    pub email: String,
+    #[serde(skip_serializing)]
+    pub pwd: String,
 }
 
 pub fn login_route(pool: PgPool) -> Router {
     Router::new().route("/login", post(login)).with_state(pool)
 }
 
-async fn login(
+pub async fn login(
     State(pool): State<PgPool>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, Response> {
     let LoginRequest { username, password } = payload;
-
-    let user: Option<UserRecord> = match sqlx::query_as(GET_USER)
-        .bind(username)
+    let user: Option<UserData> = match sqlx::query_as::<_, UserData>(FETCH_USER_DATA)
+        .bind(&username)
         .fetch_optional(&pool)
         .await
     {
         Ok(r) => r,
         Err(_) => {
             error!(
-                "LOGIN: Login user failed with following error: {:?}",
+                "LOGIN: Failed to fetch user data with error: {:?}",
                 Response::InternalError
             );
             return Err(Response::InternalError);
         }
     };
 
-    let config = ArgonConfig::from_env();
+    let user_data = if let Some(user) = user {
+        user
+    } else {
+        error!(
+            "LOGIN: Username provided was incorrect with this error {:?}",
+            Response::Unauthorized
+        );
+        return Ok(Json(LoginResponse {
+            code: Response::Unauthorized.status_code().as_u16(),
+            message: "The username provided is incorrect".to_string(),
+            data: None,
+        }));
+    };
 
-    let password_manager = match PasswordManager::new(config) {
-        Ok(pm) => pm,
-        Err(e) => {
-            error!("LOGIN: Failed to create password manager: {}", e);
+    let pwd_valid = match verify(password, user_data.pwd.as_str()) {
+        Ok(valid) => valid,
+        Err(_) => {
+            error!(
+                "LOGIN: Password verification failed with error {:?}",
+                Response::InternalError
+            );
             return Err(Response::InternalError);
         }
     };
 
-    match user {
-        Some(user) => match password_manager.verify_password(&password, &user.pwd).await {
-            Ok(true) => {
-                info!("LOGIN: User: {} logged in successfully", user.username);
-                Ok(Json(LoginResponse {
-                    code: Response::Success.status_code().as_u16(),
-                    message: "Login successful".to_string(),
-                    id: Some(user.id),
-                    username: Some(user.username),
-                    name: Some(user.name),
-                    surname: Some(user.surname),
-                    email: Some(user.email),
-                    phone: Some(user.phone),
-                }))
-            }
-            Ok(false) => {
-                error!("LOGIN: Invalid password for user {}", user.username);
-                Ok(Json(LoginResponse {
-                    code: Response::Unauthorized.status_code().as_u16(),
-                    message: "Invalid credentials provided".to_string(),
-                    id: None,
-                    username: None,
-                    name: None,
-                    surname: None,
-                    email: None,
-                    phone: None,
-                }))
-            }
-            Err(_) => {
-                error!(
-                    "LOGIN: Password verification error with error {:?}",
-                    Response::InternalError
-                );
-                Err(Response::InternalError)
-            }
-        },
-        None => {
-            error!("LOGIN: Login user not found");
-            Ok(Json(LoginResponse {
-                code: Response::Unauthorized.status_code().as_u16(),
-                message: "Invalid credentials provided".to_string(),
-                id: None,
-                username: None,
-                name: None,
-                surname: None,
-                email: None,
-                phone: None,
-            }))
-        }
+    if pwd_valid {
+        info!("LOGIN: User {username} successfully logged in");
+        Ok(Json(LoginResponse {
+            code: Response::Success.status_code().as_u16(),
+            message: "User logged in successfuly".to_string(),
+            data: Some(user_data),
+        }))
+    } else {
+        error!(
+            "LOGIN: Password provided was incorrect with this error {:?}",
+            Response::Unauthorized
+        );
+        Ok(Json(LoginResponse {
+            code: Response::Unauthorized.status_code().as_u16(),
+            message: "The password provided is incorrect".to_string(),
+            data: None,
+        }))
     }
 }
 
-const GET_USER: &str = "
+const FETCH_USER_DATA: &str = "
 SELECT id
     ,username
     ,name
     ,surname
-    ,email
     ,phone
+    ,email
     ,pwd
 FROM users
 WHERE username = $1

@@ -3,15 +3,10 @@ name = "bookapp"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-default = ["dev"]
-dev = []
-prod = []
-
 [dependencies]
 anyhow = "1.0"
-argon2 = "0.5"
 axum = "0.7"
+bcrypt = "0.17"
 chrono = { version = "0.4", features = ["serde"] }
 dotenv = "0.15"
 serde = { version = "1", features = ["derive"] }

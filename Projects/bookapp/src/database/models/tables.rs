@@ -1,4 +1,4 @@
-use crate::database::models::table_creation::users::user_table;
+use crate::database::models::table_creation::{user_login::user_login_table, users::user_table};
 use sqlx::PgPool;
 
 pub struct Tables;
@@ -7,6 +7,10 @@ impl Tables {
         user_table(pool)
             .await
             .expect("Failed to create users table");
+
+        user_login_table(pool)
+            .await
+            .expect("Failed to create user login table");
         Ok(())
     }
 }
